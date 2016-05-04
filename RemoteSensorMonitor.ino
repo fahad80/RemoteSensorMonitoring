@@ -1,15 +1,50 @@
+//---------------------------------------------------------
+/*
+A remote own-fabricated pressure sensor monitoring device
+ 
+Author: Fahad Mirza (fahadmirza80@yahoo.com)
+Last edited: May 4th , 2016 (May the 4th be with you!!!)
+
+Application:
+  The code extracts ambient temperature data and epoch time from Openweather.com
+  it also collect sensor environment data from HTU21D humidity and temperature sensor.
+  Then Upload those tp sparkfun webserver, which was later analyzed by analog.io.
+  Also an app was built with Blynk App for android device.
+  Device also submit data to blynk app and a relay can be turn ON/OFF from the app. 
+
+Hardware:
+  I used a Hardware module based on esp8266. ARduino IDE was used to code esp8266.
+  It was powered from USB. HTU21D was powered from esp8266's 3.3V supply pin. 
+  ESP8266's I2c was used to communicate with HTU21D.
+  
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 2 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+*/
+
 // Include the ESP8266 WiFi library.
 #include <ESP8266WiFi.h>
+
 // SparkFun Phant library.
 #include <Phant.h>
-// HTU21D Library
-#include <SparkFunHTU21D.h>
-#include <Wire.h>
+
 // Blynk Library
 #include <BlynkSimpleEsp8266.h>
+
 // Epoch Time converter
 #include <Time.h>
 #include <TimeLib.h>
+
+// HTU21D Library
+#include <SparkFunHTU21D.h>
+#include <Wire.h>
 
 //Create an instance of the object
 HTU21D mySensor;
@@ -20,7 +55,7 @@ HTU21D mySensor;
 // Pin Definitions
 #define LED_PIN           5
 #define DIGITAL_PIN       12
-#define LED_BTN_VAR       V2
+#define BUTTON_VAR        V2
 #define LED_VAR           V1
 #define LCD_VAR           V9
 
@@ -47,7 +82,7 @@ const char PublicKey[] = "put your key here";
 const char PrivateKey[] = "...and here";
 
 // Post Timing 
-const unsigned long postRate = 60000; //milisecond
+const unsigned long postRate = 60000; //milisecond //data will be post to the server with postRate interval
 unsigned long lastPost = 0;
 
 
@@ -78,7 +113,6 @@ char Time[TIME_SIZE];
 // Parsing state machine states
 typedef enum {
   PARSER_START,
-  PARSER_WEATHER,
   PARSER_DT,
   PARSER_TEMP,
   PARSER_END
@@ -88,10 +122,12 @@ typedef enum {
 
 void setup() 
 {
-  initHardware(); // Setup input/output I/O pins
-  connectWiFi(); // Connect to WiFi
-  mySensor.begin();
+  initHardware();   
+  connectWiFi(); 
+  mySensor.begin();         // HTU21D instance  
   Blynk.config(BLYNK_AUTH);
+  
+  // Wait till device connects to Blynk server
   uint8_t led = 0;
   while ( Blynk.connect() == false ) 
   {
@@ -99,14 +135,16 @@ void setup()
     digitalWrite(LED_PIN, led);
     delay(200);
   }
+  
   lcd.clear();
   digitalWrite(LED_PIN, LOW); // LED on to indicate connect success
 }
 
+
+
 void loop() 
 {
   // This conditional will execute every lastPost milliseconds
-  // (assuming the Phant post succeeded).
   if ((lastPost + postRate <= millis()) || lastPost == 0)
   {
     //Serial.println(F("Getting Weather Data!"));
@@ -118,7 +156,7 @@ void loop()
     if (postToPhant())
     {
       lastPost = millis();
-      Serial.println("Post Suceeded!");
+      //Serial.println(F("Post Suceeded!"));
     }
     else // If the Phant post failed
     {
@@ -126,6 +164,7 @@ void loop()
       Serial.println(F("Post failed, will try again."));
     }
   }
+  // Check Blynk server for any potential input data
   Blynk.run();
 }
 
@@ -133,19 +172,21 @@ void loop()
  * Blynk Callbacks
  ***************************************************************/
 
-// Callback when weather button is pushed
-BLYNK_WRITE(LED_BTN_VAR) 
+// Callback when button is pressed
+BLYNK_WRITE(BUTTON_VAR) 
 {
   if ( param.asInt() == 1 ) 
   {
     board_led.off();
-    digitalWrite(LED_PIN, 1);
+    digitalWrite(DIGITAL_PIN, 1);
   }
   else
   {
     board_led.on();
-    digitalWrite(LED_PIN, 0);
+    digitalWrite(DIGITAL_PIN, 0);
   }
+
+  // Print data in Blynk LCD
   lcd.print(0, 0, "Temp: ");
   lcd.print(7, 0, mySensor.readTemperature());
   lcd.print(0, 1, "Humi: ");
@@ -153,38 +194,36 @@ BLYNK_WRITE(LED_BTN_VAR)
 }
 
 
+
+/****************************************************************
+ * Functions
+ ***************************************************************/
 void connectWiFi()
 {
   byte ledStatus = LOW;
-  //Serial.println();
-  //Serial.println(F("Connecting to: " + String(WiFiSSID)));
-  // Set WiFi mode to station (as opposed to AP or AP_STA)
-  WiFi.mode(WIFI_STA);
+  //Serial.println(); Serial.println(F("Connecting to: " + String(WiFiSSID)));
+  WiFi.mode(WIFI_STA); // Set WiFi mode to station (as opposed to AP or AP_STA)
 
-  // This initiates a WiFI connection
-  // as a WPA, WPA2,or WEP passphrase.
+  // This initiates a WiFI connection as a WPA, WPA2,or WEP passphrase.
   WiFi.begin(WiFiSSID, WiFiPSK);
 
-  // Use the WiFi.status() function to check if the ESP8266
-  // is connected to a WiFi network.
+  // Use the WiFi.status() function to check if the ESP8266 is connected to a WiFi network.
   while (WiFi.status() != WL_CONNECTED)
   {
     // Blink the LED
     digitalWrite(LED_PIN, ledStatus); // Write LED high/low
     ledStatus = (ledStatus == HIGH) ? LOW : HIGH;
 
-    // Delays allow the ESP8266 to perform critical tasks
-    // defined outside of the sketch. These tasks include
+    // Delays allow the ESP8266 to perform critical tasks defined outside of the sketch. These tasks include
     // setting up, and maintaining, a WiFi connection.
     delay(100);
-    // Potentially infinite loops are generally dangerous.
-    // Add delays -- allowing the processor to perform other
-    // tasks -- wherever possible.
   }
-  Serial.println("WiFi connected");  
-  Serial.println("IP address: ");
+  Serial.println(F("WiFi connected"));  
+  Serial.println(F("IP address: "));
   Serial.println(WiFi.localIP());
 }
+
+
 
 void initHardware()
 {
@@ -192,14 +231,14 @@ void initHardware()
   pinMode(DIGITAL_PIN, INPUT_PULLUP); // Setup an input to read
   pinMode(LED_PIN, OUTPUT); // Set LED as output
   digitalWrite(LED_PIN, HIGH); // LED off
-  // Don't need to set ANALOG_PIN as input, 
-  // that's all it can be.
+  // Don't need to set ANALOG_PIN as input, that's all it can be.
 }
+
+
 
 int postToPhant()
 {
-  // LED turns on when we enter, it'll go off when we 
-  // successfully post.
+  // LED turns on when we enter, it'll go off when we successfully post.
   digitalWrite(LED_PIN, LOW);
 
   WiFiClient phantClient;
@@ -207,23 +246,23 @@ int postToPhant()
   Phant phant(PhantHost, PublicKey, PrivateKey);
   
 
-  // Add the four field/value pairs defined by our stream:
+  // Add the five field/value pairs defined by sparkfun stream:
   phant.add("date", date);
   phant.add("time", Time);
   phant.add("wetherTemp", temp);
   phant.add("sensorTemp", mySensor.readTemperature());
   phant.add("sensorHumidity", mySensor.readHumidity());
   
-  // Now connect to data.sparkfun.com, and post our data:
+  // Now connect to data.sparkfun.com, and post data:
   if (!phantClient.connect(PhantHost, httpPort)) 
   {
     // If we fail to connect, return 0.
     return 0;
   }
-  // If we successfully connected, print our Phant post:
+  // If we successfully connected, print Phant post:
   phantClient.print(phant.post());
 
-  // Read all the lines of the reply from server and print them to Serial
+  // Read all the lines of the reply from server
   while(phantClient.available())
   {
     String line = phantClient.readStringUntil('\r');
@@ -326,6 +365,7 @@ int getWeather()
   }
   return 1; // Data successfully acquired
 }
+
 
 // Shift buffer to the left by 1 and append new char at end
 void pushOnBuffer(char c, char *buf, uint8_t len) 
