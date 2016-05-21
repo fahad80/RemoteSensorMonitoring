@@ -124,7 +124,7 @@ void setup()
 {
   initHardware();   
   connectWiFi(); 
-  mySensor.begin();         // HTU21D instance  
+  mySensor.begin();         // HTU21D instance  PIN2->SDA / PIN14->SCL
   Blynk.config(BLYNK_AUTH);
   
   // Wait till device connects to Blynk server
